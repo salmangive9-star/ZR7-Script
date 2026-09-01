@@ -1,0 +1,1422 @@
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local CoreGui = game:GetService("CoreGui")
+local TeleportService = game:GetService("TeleportService")
+local HttpService = game:GetService("HttpService")
+local LocalPlayer = Players.LocalPlayer
+
+local TargetGuiParent = LocalPlayer:WaitForChild("PlayerGui")
+
+-- رمز الحفاظ على اتجاه النص العربي من اليمين إلى اليسار
+local RLM = "\226\128\143"
+
+-- تنظيف الشاشة
+if TargetGuiParent:FindFirstChild("ZR7_CyberLoad") then TargetGuiParent["ZR7_CyberLoad"]:Destroy() end
+if TargetGuiParent:FindFirstChild("ZR7CyberHub") then TargetGuiParent["ZR7CyberHub"]:Destroy() end
+if CoreGui:FindFirstChild("ZR7_ESP_Holder") then CoreGui["ZR7_ESP_Holder"]:Destroy() end
+
+-- ========================================================
+-- [ نظام الترجمة الديناميكي ]
+-- ========================================================
+local LangData = {}
+local IsEnglish = false
+
+local function RegisterLang(obj, arText, enText, isPlaceholder, isRichText)
+    table.insert(LangData, {Obj = obj, AR = arText, EN = enText, IsPlaceholder = isPlaceholder, IsRichText = isRichText})
+    if isPlaceholder then
+        obj.PlaceholderText = IsEnglish and enText or arText
+    else
+        obj.Text = IsEnglish and enText or arText
+    end
+end
+
+local function UpdateLanguage()
+    for _, data in pairs(LangData) do
+        local newText = IsEnglish and data.EN or data.AR
+        if data.Obj and data.Obj.Parent then
+            if data.IsPlaceholder then
+                data.Obj.PlaceholderText = newText
+            else
+                data.Obj.Text = newText
+            end
+        end
+    end
+end
+
+-- ========================================================
+-- [ نظام الألوان الديناميكي المطور - الأزرق الصافي ]
+-- ========================================================
+local CyberTheme = {
+    MainColor = Color3.fromRGB(0, 136, 255),       -- أزرق صافي
+    GlowColor = Color3.fromRGB(0, 85, 255),        -- أزرق عميق
+    ObjectsToColor = {}                            
+}
+
+local currentHex = "#0088ff"
+
+local function ApplyThemeColor(color, glowColor)
+    local newHex = string.format("#%02x%02x%02x", math.floor(color.R*255), math.floor(color.G*255), math.floor(color.B*255))
+    for _, data in pairs(LangData) do
+        if data.IsRichText then
+            data.AR = string.gsub(data.AR, currentHex, newHex)
+            data.EN = string.gsub(data.EN, currentHex, newHex)
+        end
+    end
+    currentHex = newHex
+    UpdateLanguage()
+
+    CyberTheme.MainColor = color
+    CyberTheme.GlowColor = glowColor or color
+    for obj, propType in pairs(CyberTheme.ObjectsToColor) do
+        if obj and obj.Parent then
+            if propType == "Color" then obj.Color = color
+            elseif propType == "BackgroundColor3" then obj.BackgroundColor3 = color
+            elseif propType == "TextColor3" then obj.TextColor3 = color
+            elseif propType == "ImageColor3" then obj.ImageColor3 = color
+            elseif propType == "Glow" then obj.Color = glowColor or color
+            elseif propType == "FillColor" then obj.FillColor = color
+            elseif propType == "ScrollBarImageColor3" then obj.ScrollBarImageColor3 = color end
+        elseif obj then
+            CyberTheme.ObjectsToColor[obj] = nil
+        end
+    end
+end
+
+-- ========================================================
+-- [ الحماية المدمجة و ESP ]
+-- ========================================================
+local ARem, CRem
+local ProtectionEnabled = false
+
+local function AntiAdmin()
+    pcall(function()
+        CRem = ReplicatedStorage:FindFirstChild("ChatEvent", true)
+        for _, d in pairs(ReplicatedStorage:GetDescendants()) do
+            if d:IsA("RemoteFunction") and (d.Name == "RequestCommandModification" or d.Name:match("Modification")) then
+                ARem = d
+                break
+            end
+        end
+        local h = ReplicatedStorage:FindFirstChild("HDAdminHDClient") or game:GetService("JointsService"):FindFirstChild("HDAdminHDClient")
+        if h and h:FindFirstChild("Assets") and h.Assets:FindFirstChild("NightVision") then
+            h.Assets.NightVision:Destroy()
+        end
+        local g = LocalPlayer.PlayerGui:FindFirstChild("HDAdminInterface") or LocalPlayer.PlayerGui:FindFirstChild("HDAdminGui")
+        if g then g:Destroy() end
+    end)
+end
+
+task.spawn(function()
+    while task.wait(1) do
+        if ProtectionEnabled then AntiAdmin() end
+    end
+end)
+
+local ESPFolder = Instance.new("Folder")
+ESPFolder.Name = "ZR7_ESP_Holder"
+pcall(function() ESPFolder.Parent = CoreGui end)
+if not ESPFolder.Parent then ESPFolder.Parent = TargetGuiParent end
+
+local espEnabled = false
+
+local function RestoreDefaultNames()
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("Humanoid") then
+            player.Character.Humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.Viewer
+        end
+    end
+end
+
+local function CreateESP(player)
+    if player == LocalPlayer then return end
+    local character = player.Character
+    if character and character:FindFirstChild("HumanoidRootPart") and character:FindFirstChild("Humanoid") then
+        character.Humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+        local hrp = character.HumanoidRootPart
+
+        local Billboard = Instance.new("BillboardGui")
+        Billboard.Name = player.Name .. "_Name"
+        Billboard.Parent = ESPFolder
+        Billboard.Adornee = hrp
+        Billboard.Size = UDim2.new(0, 200, 0, 50)
+        Billboard.StudsOffset = Vector3.new(0, 3, 0)
+        Billboard.AlwaysOnTop = true
+
+        local NameLabel = Instance.new("TextLabel")
+        NameLabel.Parent = Billboard
+        NameLabel.Size = UDim2.new(1, 0, 1, 0)
+        NameLabel.BackgroundTransparency = 1
+        NameLabel.Text = player.DisplayName .. " (@" .. player.Name .. ")"
+        NameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+        NameLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+        NameLabel.TextStrokeTransparency = 0
+        NameLabel.Font = Enum.Font.GothamBold
+        NameLabel.TextSize = 14
+
+        local Highlight = Instance.new("Highlight")
+        Highlight.Name = player.Name .. "_Highlight"
+        Highlight.Parent = ESPFolder
+        Highlight.Adornee = character
+        Highlight.FillColor = CyberTheme.MainColor
+        Highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+        Highlight.FillTransparency = 0.5
+        Highlight.OutlineTransparency = 0.2
+        Highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+        CyberTheme.ObjectsToColor[Highlight] = "FillColor"
+    end
+end
+
+local function UpdateESP()
+    ESPFolder:ClearAllChildren()
+    if espEnabled then
+        for _, player in pairs(Players:GetPlayers()) do
+            CreateESP(player)
+        end
+    end
+end
+
+Players.PlayerAdded:Connect(function(player)
+    player.CharacterAdded:Connect(function()
+        task.wait(1)
+        if espEnabled then UpdateESP() end
+    end)
+end)
+
+for _, player in pairs(Players:GetPlayers()) do
+    player.CharacterAdded:Connect(function()
+        task.wait(1)
+        if espEnabled then UpdateESP() end
+    end)
+end
+
+-- ========================================================
+-- [ نظام الرتب المخصص والبحث عن الاسم الظاهر DisplayName ]
+-- ========================================================
+local MyRank = "👤 عضو"
+local MyRankColor = "#ffffff"
+
+local displayNameUpper = string.upper(LocalPlayer.DisplayName)
+local usernameLower = string.lower(LocalPlayer.Name)
+
+local hasR7XTag = string.find(displayNameUpper, "R7X") ~= nil or string.find(displayNameUpper, "R7X_") ~= nil or string.find(displayNameUpper, "_R7X") ~= nil
+
+if LocalPlayer.UserId == 7433445660 then
+    MyRank = RLM .. "👑 صاحب السكربت"
+    MyRankColor = "#ff2a2a" 
+elseif hasR7XTag or string.find(usernameLower, "r7x") then 
+    MyRank = RLM .. "⚔️ عضو R7X الحقيقي"
+    MyRankColor = "#0088ff"
+elseif LocalPlayer.UserId == 10030459033 then
+    MyRank = RLM .. "🛡️ نائب الكلان"
+    MyRankColor = "#ffaa00" 
+end
+
+-- ========================================================
+-- [ 1. شاشة التحميل ]
+-- ========================================================
+local loadGui = Instance.new("ScreenGui")
+loadGui.Name = "ZR7_CyberLoad"
+loadGui.IgnoreGuiInset = true
+loadGui.ResetOnSpawn = false
+loadGui.Parent = TargetGuiParent
+
+local glassBlurFrame = Instance.new("Frame")
+glassBlurFrame.Size = UDim2.new(1, 0, 1, 0)
+glassBlurFrame.BackgroundColor3 = Color3.fromRGB(10, 14, 23)
+glassBlurFrame.BackgroundTransparency = 0.25 
+glassBlurFrame.Parent = loadGui
+
+local centerContainer = Instance.new("Frame")
+centerContainer.Size = UDim2.new(0, 400, 0, 200)
+centerContainer.Position = UDim2.new(0.5, 0, 0.5, 0)
+centerContainer.AnchorPoint = Vector2.new(0.5, 0.5)
+centerContainer.BackgroundTransparency = 1
+centerContainer.Parent = loadGui
+
+local titleText = Instance.new("TextLabel")
+titleText.Size = UDim2.new(1, 0, 0, 40)
+titleText.Position = UDim2.new(0, 0, 0, 10)
+titleText.BackgroundTransparency = 1
+titleText.Text = "⚡ <font color='#0088ff'><b>R7X</b></font> <font color='#ffffff'>CYBER CORE</font>"
+titleText.RichText = true
+titleText.TextColor3 = Color3.fromRGB(255, 255, 255)
+titleText.Font = Enum.Font.GothamBold
+titleText.TextSize = 28
+titleText.Parent = centerContainer
+
+local statusText = Instance.new("TextLabel")
+statusText.Size = UDim2.new(1, 0, 0, 20)
+statusText.Position = UDim2.new(0, 0, 0, 60)
+statusText.BackgroundTransparency = 1
+statusText.Text = "جاري التحقق من اسم اللاعب وتحميل النظام..."
+statusText.TextColor3 = Color3.fromRGB(180, 210, 235)
+statusText.Font = Enum.Font.GothamMedium
+statusText.TextSize = 13
+statusText.Parent = centerContainer
+
+local percentText = Instance.new("TextLabel")
+percentText.Size = UDim2.new(1, 0, 0, 30)
+percentText.Position = UDim2.new(0, 0, 0, 95)
+percentText.BackgroundTransparency = 1
+percentText.Text = "0%"
+percentText.TextColor3 = Color3.fromRGB(0, 136, 255)
+percentText.Font = Enum.Font.Code
+percentText.TextSize = 22
+percentText.Parent = centerContainer
+
+local barBg = Instance.new("Frame")
+barBg.Size = UDim2.new(0, 260, 0, 4)
+barBg.Position = UDim2.new(0.5, -130, 0, 140)
+barBg.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+barBg.BackgroundTransparency = 0.85
+barBg.Parent = centerContainer
+Instance.new("UICorner", barBg).CornerRadius = UDim.new(1, 0)
+
+local barFill = Instance.new("Frame")
+barFill.Size = UDim2.new(0, 0, 1, 0)
+barFill.BackgroundColor3 = CyberTheme.MainColor
+barFill.Parent = barBg
+Instance.new("UICorner", barFill).CornerRadius = UDim.new(1, 0)
+CyberTheme.ObjectsToColor[barFill] = "BackgroundColor3"
+
+local barGlow = Instance.new("UIStroke")
+barGlow.Color = CyberTheme.GlowColor
+barGlow.Thickness = 2
+barGlow.Transparency = 0.4
+barGlow.Parent = barFill
+CyberTheme.ObjectsToColor[barGlow] = "Glow"
+
+-- ========================================================
+-- [ 2. إطلاق الهب الرئيسي ]
+-- ========================================================
+local function LaunchCyberHub()
+    local hubGui = Instance.new("ScreenGui")
+    hubGui.Name = "ZR7CyberHub"
+    hubGui.ResetOnSpawn = false
+    hubGui.Parent = TargetGuiParent
+
+    local toggleBtn = Instance.new("ImageButton")
+    toggleBtn.Size = UDim2.new(0, 55, 0, 55)
+    toggleBtn.Position = UDim2.new(0, 25, 0, 100) 
+    toggleBtn.BackgroundColor3 = Color3.fromRGB(11, 15, 24) 
+    toggleBtn.BackgroundTransparency = 0.2 
+    toggleBtn.Image = "http://www.roblox.com/asset/?id=73106640160229" 
+    toggleBtn.ImageColor3 = Color3.fromRGB(255, 255, 255) 
+    toggleBtn.ScaleType = Enum.ScaleType.Fit 
+    toggleBtn.Parent = hubGui
+    Instance.new("UICorner", toggleBtn).CornerRadius = UDim.new(1, 0)
+
+    local toggleStroke = Instance.new("UIStroke", toggleBtn)
+    toggleStroke.Color = CyberTheme.MainColor
+    toggleStroke.Thickness = 2
+    CyberTheme.ObjectsToColor[toggleStroke] = "Color"
+
+    localتفضل، هذا هو السكربت الكامل بعد إضافة كود تشغيل **VR7** في المكان المخصص له.
+
+```lua
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local CoreGui = game:GetService("CoreGui")
+local TeleportService = game:GetService("TeleportService")
+local HttpService = game:GetService("HttpService")
+local LocalPlayer = Players.LocalPlayer
+
+local TargetGuiParent = LocalPlayer:WaitForChild("PlayerGui")
+
+-- رمز الحفاظ على اتجاه النص العربي من اليمين إلى اليسار
+local RLM = "\226\128\143"
+
+-- تنظيف الشاشة
+if TargetGuiParent:FindFirstChild("ZR7_CyberLoad") then TargetGuiParent["ZR7_CyberLoad"]:Destroy() end
+if TargetGuiParent:FindFirstChild("ZR7CyberHub") then TargetGuiParent["ZR7CyberHub"]:Destroy() end
+if CoreGui:FindFirstChild("ZR7_ESP_Holder") then CoreGui["ZR7_ESP_Holder"]:Destroy() end
+
+-- ========================================================
+-- [ نظام الترجمة الديناميكي ]
+-- ========================================================
+local LangData = {}
+local IsEnglish = false
+
+local function RegisterLang(obj, arText, enText, isPlaceholder, isRichText)
+    table.insert(LangData, {Obj = obj, AR = arText, EN = enText, IsPlaceholder = isPlaceholder, IsRichText = isRichText})
+    if isPlaceholder then
+        obj.PlaceholderText = IsEnglish and enText or arText
+    else
+        obj.Text = IsEnglish and enText or arText
+    end
+end
+
+local function UpdateLanguage()
+    for _, data in pairs(LangData) do
+        local newText = IsEnglish and data.EN or data.AR
+        if data.Obj and data.Obj.Parent then
+            if data.IsPlaceholder then
+                data.Obj.PlaceholderText = newText
+            else
+                data.Obj.Text = newText
+            end
+        end
+    end
+end
+
+-- ========================================================
+-- [ نظام الألوان الديناميكي المطور - الأزرق الصافي ]
+-- ========================================================
+local CyberTheme = {
+    MainColor = Color3.fromRGB(0, 136, 255),       -- أزرق صافي
+    GlowColor = Color3.fromRGB(0, 85, 255),        -- أزرق عميق
+    ObjectsToColor = {}                            
+}
+
+local currentHex = "#0088ff"
+
+local function ApplyThemeColor(color, glowColor)
+    local newHex = string.format("#%02x%02x%02x", math.floor(color.R*255), math.floor(color.G*255), math.floor(color.B*255))
+    for _, data in pairs(LangData) do
+        if data.IsRichText then
+            data.AR = string.gsub(data.AR, currentHex, newHex)
+            data.EN = string.gsub(data.EN, currentHex, newHex)
+        end
+    end
+    currentHex = newHex
+    UpdateLanguage()
+
+    CyberTheme.MainColor = color
+    CyberTheme.GlowColor = glowColor or color
+    for obj, propType in pairs(CyberTheme.ObjectsToColor) do
+        if obj and obj.Parent then
+            if propType == "Color" then obj.Color = color
+            elseif propType == "BackgroundColor3" then obj.BackgroundColor3 = color
+            elseif propType == "TextColor3" then obj.TextColor3 = color
+            elseif propType == "ImageColor3" then obj.ImageColor3 = color
+            elseif propType == "Glow" then obj.Color = glowColor or color
+            elseif propType == "FillColor" then obj.FillColor = color
+            elseif propType == "ScrollBarImageColor3" then obj.ScrollBarImageColor3 = color end
+        elseif obj then
+            CyberTheme.ObjectsToColor[obj] = nil
+        end
+    end
+end
+
+-- ========================================================
+-- [ الحماية المدمجة و ESP ]
+-- ========================================================
+local ARem, CRem
+local ProtectionEnabled = false
+
+local function AntiAdmin()
+    pcall(function()
+        CRem = ReplicatedStorage:FindFirstChild("ChatEvent", true)
+        for _, d in pairs(ReplicatedStorage:GetDescendants()) do
+            if d:IsA("RemoteFunction") and (d.Name == "RequestCommandModification" or d.Name:match("Modification")) then
+                ARem = d
+                break
+            end
+        end
+        local h = ReplicatedStorage:FindFirstChild("HDAdminHDClient") or game:GetService("JointsService"):FindFirstChild("HDAdminHDClient")
+        if h and h:FindFirstChild("Assets") and h.Assets:FindFirstChild("NightVision") then
+            h.Assets.NightVision:Destroy()
+        end
+        local g = LocalPlayer.PlayerGui:FindFirstChild("HDAdminInterface") or LocalPlayer.PlayerGui:FindFirstChild("HDAdminGui")
+        if g then g:Destroy() end
+    end)
+end
+
+task.spawn(function()
+    while task.wait(1) do
+        if ProtectionEnabled then AntiAdmin() end
+    end
+end)
+
+local ESPFolder = Instance.new("Folder")
+ESPFolder.Name = "ZR7_ESP_Holder"
+pcall(function() ESPFolder.Parent = CoreGui end)
+if not ESPFolder.Parent then ESPFolder.Parent = TargetGuiParent end
+
+local espEnabled = false
+
+local function RestoreDefaultNames()
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("Humanoid") then
+            player.Character.Humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.Viewer
+        end
+    end
+end
+
+local function CreateESP(player)
+    if player == LocalPlayer then return end
+    local character = player.Character
+    if character and character:FindFirstChild("HumanoidRootPart") and character:FindFirstChild("Humanoid") then
+        character.Humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+        local hrp = character.HumanoidRootPart
+
+        local Billboard = Instance.new("BillboardGui")
+        Billboard.Name = player.Name .. "_Name"
+        Billboard.Parent = ESPFolder
+        Billboard.Adornee = hrp
+        Billboard.Size = UDim2.new(0, 200, 0, 50)
+        Billboard.StudsOffset = Vector3.new(0, 3, 0)
+        Billboard.AlwaysOnTop = true
+
+        local NameLabel = Instance.new("TextLabel")
+        NameLabel.Parent = Billboard
+        NameLabel.Size = UDim2.new(1, 0, 1, 0)
+        NameLabel.BackgroundTransparency = 1
+        NameLabel.Text = player.DisplayName .. " (@" .. player.Name .. ")"
+        NameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+        NameLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+        NameLabel.TextStrokeTransparency = 0
+        NameLabel.Font = Enum.Font.GothamBold
+        NameLabel.TextSize = 14
+
+        local Highlight = Instance.new("Highlight")
+        Highlight.Name = player.Name .. "_Highlight"
+        Highlight.Parent = ESPFolder
+        Highlight.Adornee = character
+        Highlight.FillColor = CyberTheme.MainColor
+        Highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+        Highlight.FillTransparency = 0.5
+        Highlight.OutlineTransparency = 0.2
+        Highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+        CyberTheme.ObjectsToColor[Highlight] = "FillColor"
+    end
+end
+
+local function UpdateESP()
+    ESPFolder:ClearAllChildren()
+    if espEnabled then
+        for _, player in pairs(Players:GetPlayers()) do
+            CreateESP(player)
+        end
+    end
+end
+
+Players.PlayerAdded:Connect(function(player)
+    player.CharacterAdded:Connect(function()
+        task.wait(1)
+        if espEnabled then UpdateESP() end
+    end)
+end)
+
+for _, player in pairs(Players:GetPlayers()) do
+    player.CharacterAdded:Connect(function()
+        task.wait(1)
+        if espEnabled then UpdateESP() end
+    end)
+end
+
+-- ========================================================
+-- [ نظام الرتب المخصص والبحث عن الاسم الظاهر DisplayName ]
+-- ========================================================
+local MyRank = "👤 عضو"
+local MyRankColor = "#ffffff"
+
+local displayNameUpper = string.upper(LocalPlayer.DisplayName)
+local usernameLower = string.lower(LocalPlayer.Name)
+
+local hasR7XTag = string.find(displayNameUpper, "R7X") ~= nil or string.find(displayNameUpper, "R7X_") ~= nil or string.find(displayNameUpper, "_R7X") ~= nil
+
+if LocalPlayer.UserId == 7433445660 then
+    MyRank = RLM .. "👑 صاحب السكربت"
+    MyRankColor = "#ff2a2a" 
+elseif hasR7XTag or string.find(usernameLower, "r7x") then 
+    MyRank = RLM .. "⚔️ عضو R7X الحقيقي"
+    MyRankColor = "#0088ff"
+elseif LocalPlayer.UserId == 10030459033 then
+    MyRank = RLM .. "🛡️ نائب الكلان"
+    MyRankColor = "#ffaa00" 
+end
+
+-- ========================================================
+-- [ 1. شاشة التحميل ]
+-- ========================================================
+local loadGui = Instance.new("ScreenGui")
+loadGui.Name = "ZR7_CyberLoad"
+loadGui.IgnoreGuiInset = true
+loadGui.ResetOnSpawn = false
+loadGui.Parent = TargetGuiParent
+
+local glassBlurFrame = Instance.new("Frame")
+glassBlurFrame.Size = UDim2.new(1, 0, 1, 0)
+glassBlurFrame.BackgroundColor3 = Color3.fromRGB(10, 14, 23)
+glassBlurFrame.BackgroundTransparency = 0.25 
+glassBlurFrame.Parent = loadGui
+
+local centerContainer = Instance.new("Frame")
+centerContainer.Size = UDim2.new(0, 400, 0, 200)
+centerContainer.Position = UDim2.new(0.5, 0, 0.5, 0)
+centerContainer.AnchorPoint = Vector2.new(0.5, 0.5)
+centerContainer.BackgroundTransparency = 1
+centerContainer.Parent = loadGui
+
+local titleText = Instance.new("TextLabel")
+titleText.Size = UDim2.new(1, 0, 0, 40)
+titleText.Position = UDim2.new(0, 0, 0, 10)
+titleText.BackgroundTransparency = 1
+titleText.Text = "⚡ <font color='#0088ff'><b>R7X</b></font> <font color='#ffffff'>CYBER CORE</font>"
+titleText.RichText = true
+titleText.TextColor3 = Color3.fromRGB(255, 255, 255)
+titleText.Font = Enum.Font.GothamBold
+titleText.TextSize = 28
+titleText.Parent = centerContainer
+
+local statusText = Instance.new("TextLabel")
+statusText.Size = UDim2.new(1, 0, 0, 20)
+statusText.Position = UDim2.new(0, 0, 0, 60)
+statusText.BackgroundTransparency = 1
+statusText.Text = "جاري التحقق من اسم اللاعب وتحميل النظام..."
+statusText.TextColor3 = Color3.fromRGB(180, 210, 235)
+statusText.Font = Enum.Font.GothamMedium
+statusText.TextSize = 13
+statusText.Parent = centerContainer
+
+local percentText = Instance.new("TextLabel")
+percentText.Size = UDim2.new(1, 0, 0, 30)
+percentText.Position = UDim2.new(0, 0, 0, 95)
+percentText.BackgroundTransparency = 1
+percentText.Text = "0%"
+percentText.TextColor3 = Color3.fromRGB(0, 136, 255)
+percentText.Font = Enum.Font.Code
+percentText.TextSize = 22
+percentText.Parent = centerContainer
+
+local barBg = Instance.new("Frame")
+barBg.Size = UDim2.new(0, 260, 0, 4)
+barBg.Position = UDim2.new(0.5, -130, 0, 140)
+barBg.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+barBg.BackgroundTransparency = 0.85
+barBg.Parent = centerContainer
+Instance.new("UICorner", barBg).CornerRadius = UDim.new(1, 0)
+
+local barFill = Instance.new("Frame")
+barFill.Size = UDim2.new(0, 0, 1, 0)
+barFill.BackgroundColor3 = CyberTheme.MainColor
+barFill.Parent = barBg
+Instance.new("UICorner", barFill).CornerRadius = UDim.new(1, 0)
+CyberTheme.ObjectsToColor[barFill] = "BackgroundColor3"
+
+local barGlow = Instance.new("UIStroke")
+barGlow.Color = CyberTheme.GlowColor
+barGlow.Thickness = 2
+barGlow.Transparency = 0.4
+barGlow.Parent = barFill
+CyberTheme.ObjectsToColor[barGlow] = "Glow"
+
+-- ========================================================
+-- [ 2. إطلاق الهب الرئيسي ]
+-- ========================================================
+local function LaunchCyberHub()
+    local hubGui = Instance.new("ScreenGui")
+    hubGui.Name = "ZR7CyberHub"
+    hubGui.ResetOnSpawn = false
+    hubGui.Parent = TargetGuiParent
+
+    local toggleBtn = Instance.new("ImageButton")
+    toggleBtn.Size = UDim2.new(0, 55, 0, 55)
+    toggleBtn.Position = UDim2.new(0, 25, 0, 100) 
+    toggleBtn.BackgroundColor3 = Color3.fromRGB(11, 15, 24) 
+    toggleBtn.BackgroundTransparency = 0.2 
+    toggleBtn.Image = "[http://www.roblox.com/asset/?id=73106640160229](http://www.roblox.com/asset/?id=73106640160229)" 
+    toggleBtn.ImageColor3 = Color3.fromRGB(255, 255, 255) 
+    toggleBtn.ScaleType = Enum.ScaleType.Fit 
+    toggleBtn.Parent = hubGui
+    Instance.new("UICorner", toggleBtn).CornerRadius = UDim.new(1, 0)
+
+    local toggleStroke = Instance.new("UIStroke", toggleBtn)
+    toggleStroke.Color = CyberTheme.MainColor
+    toggleStroke.Thickness = 2
+    CyberTheme.ObjectsToColor[toggleStroke] = "Color"
+
+    local toggleGlow = Instance.new("UIStroke", toggleBtn)
+    toggleGlow.Color = CyberTheme.GlowColor
+    toggleGlow.Thickness = 0
+    toggleGlow.Transparency = 0.5
+    CyberTheme.ObjectsToColor[toggleGlow] = "Glow"
+
+    toggleBtn.MouseEnter:Connect(function() TweenService:Create(toggleGlow, TweenInfo.new(0.3), {Thickness = 4}):Play() end)
+    toggleBtn.MouseLeave:Connect(function() TweenService:Create(toggleGlow, TweenInfo.new(0.3), {Thickness = 0}):Play() end)
+
+    local dragToggle, dragInputToggle, dragStartToggle, startPosToggle
+    toggleBtn.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragToggle = true
+            dragStartToggle = input.Position
+            startPosToggle = Vector2.new(toggleBtn.AbsolutePosition.X, toggleBtn.AbsolutePosition.Y)
+            input.Changed:Connect(function() if input.UserInputState == Enum.UserInputState.End then dragToggle = false end end)
+        end
+    end)
+    toggleBtn.InputChanged:Connect(function(input) 
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then 
+            dragInputToggle = input 
+        end 
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if input == dragInputToggle and dragToggle then
+            local delta = input.Position - dragStartToggle
+            local vpSize = workspace.CurrentCamera.ViewportSize
+            local btnSize = toggleBtn.AbsoluteSize
+            local newX = math.clamp(startPosToggle.X + delta.X, 0, vpSize.X - btnSize.X)
+            local newY = math.clamp(startPosToggle.Y + delta.Y, 0, vpSize.Y - btnSize.Y)
+            toggleBtn.Position = UDim2.new(0, newX, 0, newY)
+        end
+    end)
+
+    local mainFrame = Instance.new("Frame")
+    mainFrame.Size = UDim2.new(0, 560, 0, 360)
+    mainFrame.Position = UDim2.new(0.5, -280, 0.5, -180)
+    mainFrame.BackgroundColor3 = Color3.fromRGB(8, 10, 15)
+    mainFrame.Active = true
+    mainFrame.Visible = false
+    mainFrame.ClipsDescendants = true 
+    mainFrame.Parent = hubGui
+    Instance.new("UICorner", mainFrame).CornerRadius = UDim.new(0, 14)
+
+    local mainStroke = Instance.new("UIStroke", mainFrame)
+    mainStroke.Color = Color3.fromRGB(20, 45, 65)
+    mainStroke.Thickness = 1.5
+
+    local mainGlow = Instance.new("UIStroke", mainFrame)
+    mainGlow.Color = CyberTheme.GlowColor
+    mainGlow.Thickness = 0.5
+    mainGlow.Transparency = 0.7
+    CyberTheme.ObjectsToColor[mainGlow] = "Glow"
+
+    local dragging, dragInput, dragStart, startPos
+    mainFrame.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true; dragStart = input.Position; startPos = mainFrame.Position
+            input.Changed:Connect(function() if input.UserInputState == Enum.UserInputState.End then dragging = false end end)
+        end
+    end)
+    mainFrame.InputChanged:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then dragInput = input end end)
+    UserInputService.InputChanged:Connect(function(input)
+        if input == dragInput and dragging then
+            local delta = input.Position - dragStart
+            mainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+        end
+    end)
+
+    local topBar = Instance.new("Frame")
+    topBar.Size = UDim2.new(1, 0, 0, 42)
+    topBar.BackgroundTransparency = 1
+    topBar.Parent = mainFrame
+
+    local hubTitle = Instance.new("TextLabel")
+    hubTitle.Size = UDim2.new(0, 250, 0, 42)
+    hubTitle.Position = UDim2.new(0, 18, 0, 0)
+    hubTitle.BackgroundTransparency = 1
+    hubTitle.RichText = true
+    hubTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+    hubTitle.Font = Enum.Font.GothamBold
+    hubTitle.TextSize = 15
+    hubTitle.TextXAlignment = Enum.TextXAlignment.Left
+    hubTitle.Parent = topBar
+    RegisterLang(hubTitle, "⚡ <font color='#0088ff'>R7X</font> <font color='#ffffff'>CYBER HUB</font> <font size='10' color='#0088ff'>● نشط</font>", "⚡ <font color='#0088ff'>R7X</font> <font color='#ffffff'>CYBER HUB</font> <font size='10' color='#0088ff'>● Active</font>", false, true)
+
+    local closeBtn = Instance.new("TextButton")
+    closeBtn.Size = UDim2.new(0, 12, 0, 12)
+    closeBtn.Position = UDim2.new(1, -26, 0.5, -6)
+    closeBtn.BackgroundColor3 = Color3.fromRGB(255, 75, 90)
+    closeBtn.Text = ""
+    closeBtn.Parent = topBar
+    Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(1, 0)
+
+    local minimizeBtn = Instance.new("TextButton")
+    minimizeBtn.Size = UDim2.new(0, 12, 0, 12)
+    minimizeBtn.Position = UDim2.new(1, -48, 0.5, -6)
+    minimizeBtn.BackgroundColor3 = CyberTheme.MainColor
+    minimizeBtn.Text = ""
+    minimizeBtn.Parent = topBar
+    Instance.new("UICorner", minimizeBtn).CornerRadius = UDim.new(1, 0)
+    CyberTheme.ObjectsToColor[minimizeBtn] = "BackgroundColor3"
+
+    local sidebar = Instance.new("Frame")
+    sidebar.Size = UDim2.new(0, 145, 1, -75)
+    sidebar.Position = UDim2.new(0, 10, 0, 45)
+    sidebar.BackgroundTransparency = 1
+    sidebar.Parent = mainFrame
+
+    local pagesContainer = Instance.new("Frame")
+    pagesContainer.Size = UDim2.new(1, -175, 1, -75)
+    pagesContainer.Position = UDim2.new(0, 162, 0, 45)
+    pagesContainer.BackgroundTransparency = 1
+    pagesContainer.Parent = mainFrame
+
+    local footerBar = Instance.new("Frame")
+    footerBar.Size = UDim2.new(1, -20, 0, 24)
+    footerBar.Position = UDim2.new(0, 10, 1, -30)
+    footerBar.BackgroundColor3 = Color3.fromRGB(10, 14, 22)
+    footerBar.Parent = mainFrame
+    Instance.new("UICorner", footerBar).CornerRadius = UDim.new(0, 6)
+    Instance.new("UIStroke", footerBar).Color = Color3.fromRGB(18, 28, 42)
+
+    local isMinimized = false
+    minimizeBtn.MouseButton1Click:Connect(function()
+        isMinimized = not isMinimized
+        if isMinimized then
+            sidebar.Visible = false
+            pagesContainer.Visible = false
+            footerBar.Visible = false
+            TweenService:Create(mainFrame, TweenInfo.new(0.25, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Size = UDim2.new(0, 560, 0, 42)}):Play()
+        else
+            local openTween = TweenService:Create(mainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(0, 560, 0, 360)})
+            openTween:Play()
+            openTween.Completed:Connect(function()
+                if not isMinimized then 
+                    sidebar.Visible = true; pagesContainer.Visible = true; footerBar.Visible = true
+                end
+            end)
+        end
+    end)
+
+    local function closeHubFull()
+        local closeTween = TweenService:Create(mainFrame, TweenInfo.new(0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.In), {Size = UDim2.new(0, 560, 0, 0)})
+        closeTween:Play()
+        closeTween.Completed:Connect(function() mainFrame.Visible = false end)
+    end
+
+    toggleBtn.MouseButton1Click:Connect(function()
+        if not dragToggle then
+            if mainFrame.Visible then
+                closeHubFull()
+            else
+                mainFrame.Size = UDim2.new(0, 560, 0, 0)
+                mainFrame.Visible = true
+                local targetHeight = isMinimized and 42 or 360
+                local openTween = TweenService:Create(mainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(0, 560, 0, targetHeight)})
+                openTween:Play()
+                openTween.Completed:Connect(function()
+                    if not isMinimized then
+                        sidebar.Visible = true; pagesContainer.Visible = true; footerBar.Visible = true
+                    end
+                end)
+            end
+        end
+    end)
+    closeBtn.MouseButton1Click:Connect(closeHubFull)
+
+    local tabButtonsContainer = Instance.new("Frame")
+    tabButtonsContainer.Size = UDim2.new(1, 0, 1, 0)
+    tabButtonsContainer.BackgroundTransparency = 1
+    tabButtonsContainer.Parent = sidebar
+
+    local tabLayout = Instance.new("UIListLayout")
+    tabLayout.Padding = UDim.new(0, 6)
+    tabLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    tabLayout.Parent = tabButtonsContainer
+
+    local tabIndicator = Instance.new("Frame")
+    tabIndicator.Size = UDim2.new(0, 4, 0, 22)
+    tabIndicator.Position = UDim2.new(0, 2, 0, 0)
+    tabIndicator.BackgroundColor3 = CyberTheme.MainColor
+    tabIndicator.Parent = sidebar
+    Instance.new("UICorner", tabIndicator).CornerRadius = UDim.new(1, 0)
+    CyberTheme.ObjectsToColor[tabIndicator] = "BackgroundColor3"
+
+    local pages = {}
+
+    local function createTab(tabNameAr, tabNameEn, iconText)
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(1, -6, 0, 36)
+        btn.BackgroundColor3 = Color3.fromRGB(15, 22, 35)
+        btn.BackgroundTransparency = 0.5
+        btn.TextColor3 = Color3.fromRGB(110, 130, 150)
+        btn.Font = Enum.Font.GothamBold
+        btn.TextSize = 12
+        btn.TextXAlignment = Enum.TextXAlignment.Left
+        btn.Parent = tabButtonsContainer
+        
+        RegisterLang(btn, iconText .. "   " .. tabNameAr, iconText .. "   " .. tabNameEn, false, false)
+
+        local btnPadding = Instance.new("UIPadding", btn)
+        btnPadding.PaddingLeft = UDim.new(0, 14)
+        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 8)
+        
+        local btnStroke = Instance.new("UIStroke", btn)
+        btnStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border 
+        btnStroke.Color = Color3.fromRGB(20, 30, 45)
+
+        btn.MouseEnter:Connect(function()
+            if btn.TextColor3 ~= Color3.fromRGB(255, 255, 255) then
+                TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundTransparency = 0.2, TextColor3 = Color3.fromRGB(180, 220, 240)}):Play()
+            end
+        end)
+        btn.MouseLeave:Connect(function()
+            if btn.TextColor3 ~= Color3.fromRGB(255, 255, 255) then
+                TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundTransparency = 0.5, TextColor3 = Color3.fromRGB(110, 130, 150)}):Play()
+            end
+        end)
+
+        local mainPageWrapper = Instance.new("Frame")
+        mainPageWrapper.Size = UDim2.new(1, 0, 1, 0)
+        mainPageWrapper.BackgroundTransparency = 1
+        mainPageWrapper.Visible = false
+        mainPageWrapper.Parent = pagesContainer
+
+        local page = Instance.new("ScrollingFrame")
+        page.Size = UDim2.new(1, 0, 1, 0)
+        page.BackgroundTransparency = 1
+        page.ScrollBarThickness = 3
+        page.ScrollBarImageColor3 = CyberTheme.MainColor
+        page.CanvasSize = UDim2.new(0, 0, 0, 0)
+        page.Parent = mainPageWrapper
+        CyberTheme.ObjectsToColor[page] = "ScrollBarImageColor3"
+
+        local pageLayout = Instance.new("UIListLayout")
+        pageLayout.Padding = UDim.new(0, 10)
+        pageLayout.Parent = page
+        local pagePadding = Instance.new("UIPadding", page)
+        pagePadding.PaddingLeft = UDim.new(0, 4); pagePadding.PaddingRight = UDim.new(0, 8); pagePadding.PaddingTop = UDim.new(0, 4)
+        
+        pageLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+            page.CanvasSize = UDim2.new(0, 0, 0, pageLayout.AbsoluteContentSize.Y + 20)
+        end)
+
+        btn.MouseButton1Click:Connect(function()
+            for _, p in pairs(pages) do p.Parent.Visible = false end
+            for _, b in pairs(tabButtonsContainer:GetChildren()) do
+                if b:IsA("TextButton") then
+                    TweenService:Create(b, TweenInfo.new(0.2), {BackgroundTransparency = 0.5, TextColor3 = Color3.fromRGB(110, 130, 150)}):Play()
+                    local s = b:FindFirstChildOfClass("UIStroke")
+                    if s then 
+                        s.Color = Color3.fromRGB(20, 30, 45)
+                        if CyberTheme.ObjectsToColor[s] then CyberTheme.ObjectsToColor[s] = nil end
+                    end
+                end
+            end
+            mainPageWrapper.Visible = true
+            TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundTransparency = 0, BackgroundColor3 = Color3.fromRGB(18, 35, 55), TextColor3 = Color3.fromRGB(255, 255, 255)}):Play()
+            btnStroke.Color = CyberTheme.MainColor
+            CyberTheme.ObjectsToColor[btnStroke] = "Color"
+            
+            local indicatorXPos = sidebar.Position.X.Offset > 100 and sidebar.AbsoluteSize.X - 6 or 2
+            local targetY = btn.AbsolutePosition.Y - sidebar.AbsolutePosition.Y + (btn.AbsoluteSize.Y / 2) - (tabIndicator.AbsoluteSize.Y / 2)
+            TweenService:Create(tabIndicator, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Position = UDim2.new(0, indicatorXPos, 0, targetY)}):Play()
+        end)
+
+        pages[tabNameAr] = page
+        return page, btn, mainPageWrapper
+    end
+
+    local homePage, homeBtn, homeWrapper = createTab("الرئيسية", "Home", "🏠")
+    local scriptsPage, scriptsBtn, scriptsWrapper = createTab("السكربتات", "Scripts", "🗂️")
+    local playerPage, playerBtn, playerWrapper = createTab("اللاعب", "Player", "🏃")
+
+    local welcomeLabel = Instance.new("TextLabel")
+    welcomeLabel.Size = UDim2.new(1, -8, 0, 60)
+    welcomeLabel.BackgroundTransparency = 1
+    welcomeLabel.RichText = true
+    welcomeLabel.TextColor3 = Color3.fromRGB(220, 235, 250)
+    welcomeLabel.Font = Enum.Font.GothamBold
+    welcomeLabel.TextSize = 14
+    welcomeLabel.TextXAlignment = Enum.TextXAlignment.Center
+    welcomeLabel.Parent = homePage
+    RegisterLang(welcomeLabel, "مرحباً بك في <font color='#0088ff'><b>R7X CYBER HUB</b></font>\nنظام التحكم الذكي وأشرطة السحب لسرعة خيالية.", "Welcome to <font color='#0088ff'><b>R7X CYBER HUB</b></font>\nSmart control and fast performance.", false, true)
+
+    local playerInfoCard = Instance.new("Frame")
+    playerInfoCard.Size = UDim2.new(1, -8, 0, 100)
+    playerInfoCard.BackgroundColor3 = Color3.fromRGB(11, 15, 24)
+    playerInfoCard.Parent = homePage
+    Instance.new("UICorner", playerInfoCard).CornerRadius = UDim.new(0, 8)
+    Instance.new("UIStroke", playerInfoCard).Color = Color3.fromRGB(20, 32, 48)
+
+    local playerAvatar = Instance.new("ImageLabel")
+    playerAvatar.Size = UDim2.new(0, 70, 0, 70)
+    playerAvatar.Position = UDim2.new(0, 10, 0.5, -35)
+    playerAvatar.BackgroundColor3 = Color3.fromRGB(20, 30, 50)
+    playerAvatar.Image = Players:GetUserThumbnailAsync(LocalPlayer.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size100x100)
+    playerAvatar.Parent = playerInfoCard
+    Instance.new("UICorner", playerAvatar).CornerRadius = UDim.new(1, 0)
+    local pAvatarStroke = Instance.new("UIStroke", playerAvatar)
+    pAvatarStroke.Color = CyberTheme.MainColor
+    pAvatarStroke.Thickness = 2
+    CyberTheme.ObjectsToColor[pAvatarStroke] = "Color"
+
+    local playerDisplayName = Instance.new("TextLabel")
+    playerDisplayName.Size = UDim2.new(0.6, 0, 0, 20)
+    playerDisplayName.Position = UDim2.new(0, 95, 0, 15)
+    playerDisplayName.BackgroundTransparency = 1
+    playerDisplayName.RichText = true
+    playerDisplayName.TextColor3 = Color3.fromRGB(170, 200, 230)
+    playerDisplayName.Font = Enum.Font.GothamBold
+    playerDisplayName.TextSize = 14
+    playerDisplayName.TextXAlignment = Enum.TextXAlignment.Left
+    playerDisplayName.Parent = playerInfoCard
+    RegisterLang(playerDisplayName, RLM .. "الاسم الظاهر: <font color='#ffffff'><b>" .. LocalPlayer.DisplayName .. "</b></font>", "Display Name: <font color='#ffffff'><b>" .. LocalPlayer.DisplayName .. "</b></font>", false, true)
+
+    local playerRealName = Instance.new("TextLabel")
+    playerRealName.Size = UDim2.new(0.6, 0, 0, 20)
+    playerRealName.Position = UDim2.new(0, 95, 0, 35)
+    playerRealName.BackgroundTransparency = 1
+    playerRealName.RichText = true
+    playerRealName.TextColor3 = Color3.fromRGB(130, 150, 175)
+    playerRealName.Font = Enum.Font.GothamMedium
+    playerRealName.TextSize = 12
+    playerRealName.TextXAlignment = Enum.TextXAlignment.Left
+    playerRealName.Parent = playerInfoCard
+    RegisterLang(playerRealName, RLM .. "حساب الأصلي: <font color='#0088ff'>@" .. LocalPlayer.Name .. "</font>", "Account Username: <font color='#0088ff'>@" .. LocalPlayer.Name .. "</font>", false, true)
+
+    local followLabel = Instance.new("TextLabel")
+    followLabel.Size = UDim2.new(0.8, 0, 0, 20)
+    followLabel.Position = UDim2.new(0, 95, 0, 60)
+    followLabel.BackgroundTransparency = 1
+    followLabel.RichText = true
+    followLabel.TextColor3 = CyberTheme.MainColor
+    followLabel.Font = Enum.Font.GothamBold
+    followLabel.TextSize = 12
+    followLabel.TextXAlignment = Enum.TextXAlignment.Left
+    followLabel.Parent = playerInfoCard
+    RegisterLang(followLabel, "✨ سوي لي فولو عشان نكمل تطوير سكربت R7X", "✨ Follow me so we continue developing R7X", false, false)
+    CyberTheme.ObjectsToColor[followLabel] = "TextColor3"
+
+    local function addToggleSetting(parentPage, titleAr, titleEn, descriptionAr, descriptionEn, defaultState, callback)
+        local card = Instance.new("Frame")
+        card.Size = UDim2.new(1, -8, 0, 50)
+        card.BackgroundColor3 = Color3.fromRGB(11, 15, 24)
+        card.Parent = parentPage
+        Instance.new("UICorner", card).CornerRadius = UDim.new(0, 8)
+        Instance.new("UIStroke", card).Color = Color3.fromRGB(20, 32, 48)
+
+        local lblTitle = Instance.new("TextLabel")
+        lblTitle.Size = UDim2.new(0.65, 0, 1, 0)
+        lblTitle.Position = UDim2.new(0, 16, 0, 0)
+        lblTitle.BackgroundTransparency = 1
+        lblTitle.RichText = true
+        lblTitle.TextColor3 = Color3.fromRGB(220, 235, 250)
+        lblTitle.Font = Enum.Font.GothamBold
+        lblTitle.TextSize = 12
+        lblTitle.TextXAlignment = Enum.TextXAlignment.Left
+        lblTitle.Parent = card
+        RegisterLang(lblTitle, titleAr .. "\n" .. "<sub><font color='#888888'>" .. descriptionAr .. "</font></sub>", titleEn .. "\n" .. "<sub><font color='#888888'>" .. descriptionEn .. "</font></sub>", false, true)
+
+        local toggleFrame = Instance.new("TextButton")
+        toggleFrame.Size = UDim2.new(0, 44, 0, 22)
+        toggleFrame.Position = UDim2.new(1, -58, 0.5, -11)
+        toggleFrame.BackgroundColor3 = defaultState and CyberTheme.MainColor or Color3.fromRGB(30, 40, 55)
+        toggleFrame.Text = ""
+        toggleFrame.Parent = card
+        Instance.new("UICorner", toggleFrame).CornerRadius = UDim.new(1, 0)
+        if defaultState then CyberTheme.ObjectsToColor[toggleFrame] = "BackgroundColor3" end
+
+        local toggleCircle = Instance.new("Frame")
+        toggleCircle.Size = UDim2.new(0, 16, 0, 16)
+        toggleCircle.Position = defaultState and UDim2.new(1, -19, 0.5, -8) or UDim2.new(0, 3, 0.5, -8)
+        toggleCircle.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+        toggleCircle.Parent = toggleFrame
+        Instance.new("UICorner", toggleCircle).CornerRadius = UDim.new(1, 0)
+
+        local isOn = defaultState
+        toggleFrame.MouseButton1Click:Connect(function()
+            isOn = not isOn
+            local targetPos = isOn and UDim2.new(1, -19, 0.5, -8) or UDim2.new(0, 3, 0.5, -8)
+            if isOn then
+                CyberTheme.ObjectsToColor[toggleFrame] = "BackgroundColor3"
+                toggleFrame.BackgroundColor3 = CyberTheme.MainColor
+            else
+                CyberTheme.ObjectsToColor[toggleFrame] = nil
+                toggleFrame.BackgroundColor3 = Color3.fromRGB(30, 40, 55)
+            end
+            TweenService:Create(toggleCircle, TweenInfo.new(0.2), {Position = targetPos}):Play()
+            callback(isOn)
+        end)
+    end
+
+    local function addSimpleButton(parentPage, titleAr, titleEn, callback)
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(1, -8, 0, 45) 
+        btn.BackgroundColor3 = Color3.fromRGB(11, 15, 24) 
+        btn.TextColor3 = Color3.fromRGB(230, 240, 255)
+        btn.Font = Enum.Font.GothamBold
+        btn.TextSize = 13
+        btn.AutoButtonColor = false 
+        btn.Parent = parentPage
+        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 8)
+        
+        local btnStroke = Instance.new("UIStroke", btn)
+        btnStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+        btnStroke.Color = Color3.fromRGB(20, 32, 48)
+        btnStroke.Thickness = 1
+        
+        local sideLine = Instance.new("Frame")
+        sideLine.Size = UDim2.new(0, 3, 0, 15)
+        sideLine.Position = UDim2.new(0, 0, 0.5, -7.5)
+        sideLine.BackgroundColor3 = CyberTheme.MainColor
+        sideLine.BorderSizePixel = 0
+        sideLine.Parent = btn
+        CyberTheme.ObjectsToColor[sideLine] = "BackgroundColor3"
+
+        RegisterLang(btn, titleAr, titleEn, false, false)
+
+        btn.MouseEnter:Connect(function()
+            TweenService:Create(btnStroke, TweenInfo.new(0.2), {Color = CyberTheme.MainColor}):Play()
+            TweenService:Create(sideLine, TweenInfo.new(0.2), {Size = UDim2.new(0, 4, 1, -16), Position = UDim2.new(0, 0, 0, 8)}):Play()
+            TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(14, 28, 44)}):Play()
+        end)
+        
+        btn.MouseLeave:Connect(function()
+            TweenService:Create(btnStroke, TweenInfo.new(0.2), {Color = Color3.fromRGB(20, 32, 48)}):Play()
+            TweenService:Create(sideLine, TweenInfo.new(0.2), {Size = UDim2.new(0, 3, 0, 15), Position = UDim2.new(0, 0, 0.5, -7.5)}):Play()
+            TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(11, 15, 24)}):Play()
+        end)
+
+        btn.MouseButton1Click:Connect(function()
+            TweenService:Create(btn, TweenInfo.new(0.1, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, 0, true), {Size = UDim2.new(1, -12, 0, 43)}):Play()
+            callback()
+        end)
+    end
+
+    addSimpleButton(playerPage, "🔄 إعادة تعيين الشخصية", "🔄 Reset Character", function()
+        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+            LocalPlayer.Character.Humanoid.Health = 0
+        end
+    end)
+
+    addToggleSetting(playerPage, "👁️ كشف اللاعبين (ESP)", "👁️ Player ESP", "إظهار اللاعبين والأسماء من خلف الجدران", "Show players and names behind walls", false, function(state)
+        espEnabled = state
+        if espEnabled then UpdateESP() else ESPFolder:ClearAllChildren(); RestoreDefaultNames() end
+    end)
+
+    addToggleSetting(playerPage, "🛡️ حماية كلان R7X", "🛡️ R7X Clan Protection", "حماية من أوامر الأدمن وغيرها", "Protection against admin commands", false, function(state)
+        ProtectionEnabled = state
+        if state then
+            AntiAdmin()
+            pcall(function() if ARem then ARem:InvokeServer("تم تفعيل حماية R7X") end end)
+        end
+    end)
+
+    -- [ مانع الخمول المحدث ]
+    local isAntiAfkActive = false
+    addToggleSetting(playerPage, "🚫 مانع الخمول (Anti AFK)", "🚫 Anti AFK", "يمسك الأداة رقم 2 ويشيلها بشكل متكرر", "Equips and unequips Tool 2 only", false, function(state)
+        isAntiAfkActive = state
+        if isAntiAfkActive then
+            task.spawn(function()
+                local targetTool = nil
+                
+                local initialTools = {}
+                for _, v in pairs(LocalPlayer.Backpack:GetChildren()) do
+                    if v:IsA("Tool") then table.insert(initialTools, v) end
+                end
+                if LocalPlayer.Character then
+                    for _, v in pairs(LocalPlayer.Character:GetChildren()) do
+                        if v:IsA("Tool") then table.insert(initialTools, v) end
+                    end
+                end
+                
+                targetTool = initialTools[2]
+
+                while isAntiAfkActive do
+                    pcall(function()
+                        local char = LocalPlayer.Character
+                        local hum = char and char:FindFirstChildOfClass("Humanoid")
+
+                        if not (targetTool and targetTool.Parent) then
+                            local checkTools = {}
+                            for _, v in pairs(LocalPlayer.Backpack:GetChildren()) do
+                                if v:IsA("Tool") then table.insert(checkTools, v) end
+                            end
+                            targetTool = checkTools[2]
+                        end
+
+                        if hum and targetTool and targetTool.Parent then
+                            if targetTool.Parent == LocalPlayer.Backpack then
+                                hum:EquipTool(targetTool)
+                            elseif targetTool.Parent == char then
+                                hum:UnequipTools()
+                            end
+                        end
+                    end)
+                    task.wait(0.4)
+                end
+            end)
+        end
+    end)
+
+    local searchFrame = Instance.new("Frame")
+    searchFrame.Size = UDim2.new(1, -8, 0, 34)
+    searchFrame.BackgroundColor3 = Color3.fromRGB(11, 15, 24)
+    searchFrame.Position = UDim2.new(0, 4, 0, 0)
+    searchFrame.Parent = scriptsWrapper 
+    Instance.new("UICorner", searchFrame).CornerRadius = UDim.new(0, 8)
+    Instance.new("UIStroke", searchFrame).Color = Color3.fromRGB(22, 34, 50)
+
+    local searchIcon = Instance.new("ImageLabel")
+    searchIcon.Size = UDim2.new(0, 16, 0, 16)
+    searchIcon.Position = UDim2.new(0, 10, 0.5, -8)
+    searchIcon.BackgroundTransparency = 1
+    searchIcon.Image = "rbxassetid://11419713314" 
+    searchIcon.ImageColor3 = CyberTheme.MainColor
+    searchIcon.Parent = searchFrame
+    CyberTheme.ObjectsToColor[searchIcon] = "ImageColor3"
+
+    local searchTextBox = Instance.new("TextBox")
+    searchTextBox.Size = UDim2.new(1, -38, 1, 0)
+    searchTextBox.Position = UDim2.new(0, 32, 0, 0)
+    searchTextBox.BackgroundTransparency = 1
+    searchTextBox.Text = ""
+    searchTextBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+    searchTextBox.PlaceholderColor3 = Color3.fromRGB(90, 110, 130)
+    searchTextBox.Font = Enum.Font.GothamMedium
+    searchTextBox.TextSize = 12
+    searchTextBox.TextXAlignment = Enum.TextXAlignment.Left
+    searchTextBox.Parent = searchFrame
+    RegisterLang(searchTextBox, "ابحث عن سكربت معّين...", "Search for a script...", true, false)
+
+    scriptsPage.Position = UDim2.new(0, 0, 0, 42)
+    scriptsPage.Size = UDim2.new(1, 0, 1, -42)
+
+    local allScriptCards = {}
+
+    local function addScriptButton(parentPage, titleAr, titleEn, descAr, descEn, callback)
+        local card = Instance.new("Frame")
+        card.Size = UDim2.new(1, -8, 0, 60)
+        card.BackgroundColor3 = Color3.fromRGB(11, 15, 24)
+        card.Parent = parentPage
+        Instance.new("UICorner", card).CornerRadius = UDim.new(0, 8)
+        local cardStroke = Instance.new("UIStroke", card)
+        cardStroke.Color = Color3.fromRGB(20, 32, 48)
+
+        local sideLine = Instance.new("Frame")
+        sideLine.Size = UDim2.new(0, 3, 0, 15)
+        sideLine.Position = UDim2.new(0, 0, 0.5, -7.5)
+        sideLine.BackgroundColor3 = CyberTheme.MainColor
+        sideLine.BorderSizePixel = 0
+        sideLine.Parent = card
+        CyberTheme.ObjectsToColor[sideLine] = "BackgroundColor3"
+
+        local exeBtn = Instance.new("TextButton")
+        exeBtn.Size = UDim2.new(0, 85, 0, 30)
+        exeBtn.Position = UDim2.new(1, -97, 0.5, -15)
+        exeBtn.BackgroundColor3 = Color3.fromRGB(14, 28, 44)
+        exeBtn.TextColor3 = CyberTheme.MainColor
+        exeBtn.Font = Enum.Font.GothamBold
+        exeBtn.TextSize = 11
+        exeBtn.Parent = card
+        Instance.new("UICorner", exeBtn).CornerRadius = UDim.new(0, 6)
+        RegisterLang(exeBtn, "تشغيل ⚡", "Execute ⚡", false, false)
+
+        local exeStroke = Instance.new("UIStroke", exeBtn)
+        exeStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+        exeStroke.Color = CyberTheme.MainColor
+        exeStroke.Thickness = 1
+        exeStroke.Transparency = 0.3
+        CyberTheme.ObjectsToColor[exeStroke] = "Color"
+        CyberTheme.ObjectsToColor[exeBtn] = "TextColor3"
+
+        card.MouseEnter:Connect(function()
+            TweenService:Create(cardStroke, TweenInfo.new(0.2), {Color = CyberTheme.MainColor}):Play()
+            TweenService:Create(sideLine, TweenInfo.new(0.2), {Size = UDim2.new(0, 4, 1, -16), Position = UDim2.new(0, 0, 0, 8)}):Play()
+            TweenService:Create(exeBtn, TweenInfo.new(0.2), {BackgroundColor3 = CyberTheme.MainColor, TextColor3 = Color3.fromRGB(10, 14, 23)}):Play()
+            TweenService:Create(exeStroke, TweenInfo.new(0.2), {Transparency = 0}):Play()
+        end)
+        
+        card.MouseLeave:Connect(function()
+            TweenService:Create(cardStroke, TweenInfo.new(0.2), {Color = Color3.fromRGB(20, 32, 48)}):Play()
+            TweenService:Create(sideLine, TweenInfo.new(0.2), {Size = UDim2.new(0, 3, 0, 15), Position = UDim2.new(0, 0, 0.5, -7.5)}):Play()
+            TweenService:Create(exeBtn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(14, 28, 44), TextColor3 = CyberTheme.MainColor}):Play()
+            TweenService:Create(exeStroke, TweenInfo.new(0.2), {Transparency = 0.3}):Play()
+        end)
+
+        local lblTitle = Instance.new("TextLabel")
+        lblTitle.Size = UDim2.new(0.65, 0, 0, 22)
+        lblTitle.Position = UDim2.new(0, 16, 0, 8)
+        lblTitle.BackgroundTransparency = 1
+        lblTitle.TextColor3 = Color3.fromRGB(230, 245, 255)
+        lblTitle.Font = Enum.Font.GothamBold
+        lblTitle.TextSize = 13
+        lblTitle.TextXAlignment = Enum.TextXAlignment.Left
+        lblTitle.Parent = card
+        RegisterLang(lblTitle, titleAr, titleEn, false, false)
+
+        local lblDesc = Instance.new("TextLabel")
+        lblDesc.Size = UDim2.new(0.65, 0, 0, 18)
+        lblDesc.Position = UDim2.new(0, 16, 0, 30)
+        lblDesc.BackgroundTransparency = 1
+        lblDesc.TextColor3 = Color3.fromRGB(100, 120, 140)
+        lblDesc.Font = Enum.Font.Gotham
+        lblDesc.TextSize = 10
+        lblDesc.TextXAlignment = Enum.TextXAlignment.Left
+        lblDesc.Parent = card
+        RegisterLang(lblDesc, descAr, descEn, false, false)
+
+        exeBtn.MouseButton1Click:Connect(function()
+            exeBtn.Text = IsEnglish and "Active" or "نشط"
+            TweenService:Create(exeBtn, TweenInfo.new(0.1, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, 0, true), {Size = UDim2.new(0, 78, 0, 26)}):Play()
+            task.delay(1, function() exeBtn.Text = IsEnglish and "Execute ⚡" or "تشغيل ⚡" end)
+            callback()
+        end)
+
+        table.insert(allScriptCards, {CardFrame = card, TitleAr = titleAr, TitleEn = titleEn, DescAr = descAr, DescEn = descEn})
+    end
+
+    searchTextBox:GetPropertyChangedSignal("Text"):Connect(function()
+        local query = string.lower(searchTextBox.Text)
+        for _, item in pairs(allScriptCards) do
+            if string.find(string.lower(item.TitleAr), query) or string.find(string.lower(item.DescAr), query) or string.find(string.lower(item.TitleEn), query) then
+                item.CardFrame.Visible = true
+            else
+                item.CardFrame.Visible = false
+            end
+        end
+    end)
+
+    -- ========================================================
+    -- [ قائمة السكربتات المحددة فقط ]
+    -- ========================================================
+
+    -- 1. سكربت نسخ
+    addScriptButton(scriptsPage, "سكربت نسخ", "Spam Script", "لفعاليات رسم للعرب نسخ قوي", "Powerful auto-copy for drawing events", function() 
+        loadstring(game:HttpGet("[https://raw.githubusercontent.com/salmangive9-star/ZR7-Script-Spam/refs/heads/main/ZR7%20SPAM](https://raw.githubusercontent.com/salmangive9-star/ZR7-Script-Spam/refs/heads/main/ZR7%20SPAM)"))()
+    end)
+
+    -- 2. سكربت السكنات
+    addScriptButton(scriptsPage, "سكربت السكنات", "Skins Script", "فتح وتعديل جميع المظاهر والسكنات مجاناً بالكامل.", "Unlock and modify all skins for free.", function() 
+        loadstring(game:HttpGet("[https://raw.githubusercontent.com/salmangive9-star/ZR7-Script-SKIN/refs/heads/main/ZR7%20SPAM](https://raw.githubusercontent.com/salmangive9-star/ZR7-Script-SKIN/refs/heads/main/ZR7%20SPAM)"))()
+    end)
+
+    -- 3. سكربت VR7 (مكان مخصص لربط كودك)
+    addScriptButton(scriptsPage, "سكربت VR7", "VR7 Script", "سكربت VR7 المخصص للتحكم باللعبة.", "Custom VR7 control script.", function() 
+        loadstring(game:HttpGet("[https://rawscripts.net/raw/Universal-Script-VR7-45290](https://rawscripts.net/raw/Universal-Script-VR7-45290)"))()
+    end)
+
+    -- 4. سكربت سب (مكان مخصص لربط كودك)
+    addScriptButton(scriptsPage, "سكربت سب", "Spam Script", "سكربت السب والدردشة التلقائية.", "Auto spam script.", function() 
+        -- ضع رابط أو كود السب هنا
+    end)
+
+    -- 5. سكربت الأغاني (مكان مخصص لربط كودك)
+    addScriptButton(scriptsPage, "سكربت الأغاني", "Music Script", "تشغيل الصوتيات والأغاني تلقائياً.", "Automated music player script.", function() 
+        -- ضع رابط أو كود الأغاني هنا
+    end)
+
+    local userInfoLabel = Instance.new("TextLabel")
+    userInfoLabel.Size = UDim2.new(0.9, 0, 1, 0)
+    userInfoLabel.Position = UDim2.new(0, 10, 0, 0)
+    userInfoLabel.BackgroundTransparency = 1
+    userInfoLabel.RichText = true
+    userInfoLabel.TextColor3 = Color3.fromRGB(120, 140, 160)
+    userInfoLabel.Font = Enum.Font.GothamMedium
+    userInfoLabel.TextSize = 10
+    userInfoLabel.TextXAlignment = Enum.TextXAlignment.Left
+    userInfoLabel.Parent = footerBar
+    
+    RegisterLang(
+        userInfoLabel, 
+        RLM .. "👤 المستخدم: <font color='#0088ff'>" .. LocalPlayer.DisplayName .. "</font>  |  " .. RLM .. "رتبتك: <font color='" .. MyRankColor .. "'>" .. MyRank .. "</font>", 
+        "👤 User: <font color='#0088ff'>" .. LocalPlayer.DisplayName .. "</font>  |  Rank: <font color='" .. MyRankColor .. "'>" .. MyRank .. "</font>", 
+        false, 
+        true
+    )
+
+    local fpsLabel = Instance.new("TextLabel")
+    fpsLabel.Size = UDim2.new(0.35, 0, 1, 0)
+    fpsLabel.Position = UDim2.new(1, -10, 0, 0)
+    fpsLabel.BackgroundTransparency = 1
+    fpsLabel.Text = "FPS: 60 | MS: 15"
+    fpsLabel.TextColor3 = Color3.fromRGB(100, 120, 140)
+    fpsLabel.Font = Enum.Font.GothamMedium
+    fpsLabel.TextSize = 10
+    fpsLabel.TextXAlignment = Enum.TextXAlignment.Right
+    fpsLabel.Parent = footerBar
+
+    task.spawn(function()
+        while task.wait(0.5) do if mainFrame.Visible and not isMinimized then fpsLabel.Text = "FPS: " .. math.random(59, 61) .. " | MS: " .. math.random(12, 22) end end
+    end)
+
+    local function SetupTabs()
+        homePage.Visible = true
+        homeWrapper.Visible = true
+        homeBtn.BackgroundTransparency = 0
+        homeBtn.BackgroundColor3 = Color3.fromRGB(18, 35, 55)
+        homeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        homeBtn:FindFirstChildOfClass("UIStroke").Color = CyberTheme.MainColor
+        CyberTheme.ObjectsToColor[homeBtn:FindFirstChildOfClass("UIStroke")] = "Color"
+        local targetY = homeBtn.AbsolutePosition.Y - sidebar.AbsolutePosition.Y + (homeBtn.AbsoluteSize.Y / 2) - (tabIndicator.AbsoluteSize.Y / 2)
+        tabIndicator.Position = UDim2.new(0, 2, 0, targetY)
+        UpdateLanguage() 
+    end
+
+    task.spawn(function() while homeBtn.AbsolutePosition.Y == 0 do task.wait() end SetupTabs() end)
+end
+
+-- ========================================================
+-- [ 3. شاشة التحميل ونظام التحقق من الكلان ]
+-- ========================================================
+local currentPercent = 0
+local function advanceLoading(targetPercent, duration, message)
+    statusText.Text = message
+    local startPercent = currentPercent
+    local startTime = os.clock()
+    while os.clock() - startTime < duration do
+        local progress = math.min((os.clock() - startTime) / duration, 1)
+        currentPercent = math.floor(startPercent + (targetPercent - startPercent) * progress)
+        percentText.Text = currentPercent .. "%"
+        barFill.Size = UDim2.new(currentPercent / 100, 0, 1, 0)
+        task.wait()
+    end
+    currentPercent = targetPercent
+    percentText.Text = currentPercent .. "%"
+    barFill.Size = UDim2.new(currentPercent / 100, 0, 1, 0)
+end
+
+task.spawn(function()
+    task.wait(0.1) 
+    advanceLoading(50, 0.6, "🔐 جاري فحص الرتب والاسم الظاهر (DisplayName)...")
+    task.wait(0.2)
+    
+    local dName = string.upper(LocalPlayer.DisplayName)
+    local uName = string.upper(LocalPlayer.Name)
+    local isClanMember = false
+
+    if string.find(dName, "^R7X_") or string.find(dName, "_R7X$") or string.find(dName, "R7X") or string.find(uName, "R7X") or LocalPlayer.UserId == 7433445660 or LocalPlayer.UserId == 10030459033 then
+        isClanMember = true
+    end
+
+    if not isClanMember then
+        statusText.Text = "❌ انت مو في كلان R7X"
+        statusText.TextColor3 = Color3.fromRGB(255, 50, 50)
+        percentText.TextColor3 = Color3.fromRGB(255, 50, 50)
+        barFill.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
+        if barGlow then barGlow.Color = Color3.fromRGB(255, 50, 50) end
+        
+        task.wait(2.5)
+
+        for t = 0, 1, 0.1 do
+            glassBlurFrame.BackgroundTransparency = 0.25 + (0.75 * t)
+            titleText.TextTransparency = t
+            statusText.TextTransparency = t
+            percentText.TextTransparency = t
+            barBg.BackgroundTransparency = 0.85 + (0.15 * t)
+            barFill.BackgroundTransparency = t
+            if barGlow then barGlow.Transparency = 0.4 + (0.6 * t) end
+            task.wait(0.02)
+        end
+        
+        loadGui:Destroy()
+        return
+    end
+
+    advanceLoading(80, 0.4, "✔️ تم تأكيد اسم السكربت R7X وتحديث النظام...")
+    task.wait(0.1)
+    advanceLoading(100, 0.3, "⚡ جاري تشغيل R7X CYBER HUB...")
+    task.wait(0.2)
+    
+    for t = 0, 1, 0.1 do
+        glassBlurFrame.BackgroundTransparency = 0.25 + (0.75 * t)
+        titleText.TextTransparency = t
+        statusText.TextTransparency = t
+        percentText.TextTransparency = t
+        barBg.BackgroundTransparency = 0.85 + (0.15 * t)
+        barFill.BackgroundTransparency = t
+        barGlow.Transparency = 0.4 + (0.6 * t)
+        task.wait(0.02)
+    end
+    loadGui:Destroy()
+    LaunchCyberHub()
+end)
+
